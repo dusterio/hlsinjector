@@ -15,4 +15,12 @@ Syntax: ./injector.php -i filename -m mode [-o filename] [-d]
 		-i filename	input file (MPEG TS format)
 		-m mode		choose 'analyze' or 'inject'
 		-o filename	output filename in case of 'inject' mode
-		-d		enable debug mode
+		-d		    enable debug mode`
+
+# Demo
+
+You can see it in action on [Rapport](https://www.rapport.fm/en/video) – this is where I needed it, actually.
+
+# License
+
+Use it however you wish.
