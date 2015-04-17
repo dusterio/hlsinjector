@@ -499,7 +499,7 @@
     }
 
     function modifyFramePMT($originalFrame, $newPMT) {
-        
+
     }
 
     $legend = "HLS Injector by Denis Mysenko\nSyntax: " . $argv[0] . " -i filename -m mode [-o filename] [-d]";
