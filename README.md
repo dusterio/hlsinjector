@@ -18,6 +18,18 @@ Syntax: ./injector.php -i filename -m mode [-o filename] [-d]
         -e filename with with timed metadata
 		-d		    enable debug mode`
 
+# Work modes
+
+You can run this tool in either analyze or injection mode. Analyze mode allows to verify compliance of your streams with
+the standards. It will check all headers, continuity counters, CRC checksums, etc. If you use analyze mode with debug
+key – you will see all important internals of the TS, including PAT and PMT tables.
+
+Injection mode allows you to insert ID3 metadata into existing MPEG TS file (stream). Based on metadata file (see below)
+this tool will add extra frames at specific points of your original TS. Moreover, PMT of your main program will be
+modified – we will add extra descriptors and one extra elementary stream/PID for metadata. By default, it will be
+assigned a number next after your highest existing PID (eg. if your TS file's last PID was 0x102, metadata stream
+will be on PID 0x103).
+
 # Format of metadata
 
 To be compatible with Apple tools (which are not that popular, though), I decided to keep the same format. Metadata file is

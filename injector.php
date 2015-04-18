@@ -487,13 +487,18 @@
         return $response;
 	}
 
-    function generateMetaFrame($metaTag, $metastreamID, $rawTimestamp) {
+    function generateMetaFrame($metaTag, $metastreamID, $rawTimestamp, $cc) {
         global $packetSize;
 
         // Create a blank filled frame
         $metaFrame = "";
         for($i = 0; $i < $packetSize; $i++) {
             $metaFrame .= chr(0xff);
+        }
+
+        // Continuity counter cannot be higher than 15
+        if ($cc > 15) {
+            $cc = 0;
         }
 
         // Put the meta data in the end of the frame
@@ -508,7 +513,7 @@
 
         $metaFrame[1] = chr(bindec(substr($bits, 0, 8)));
         $metaFrame[2] = chr(bindec(substr($bits, 8, 8)));
-        $metaFrame[3] = chr(bindec("00010000"));
+        $metaFrame[3] = chr(bindec("0001" . str_pad(decbin($cc), 4, 0, STR_PAD_LEFT)));
         $metaFrame[4] = chr(0);
         $metaFrame[5] = chr(0);
         $metaFrame[6] = chr(1);
@@ -680,7 +685,7 @@
     $legend .= "\n\n\t\t-i filename\tinput file (MPEG TS format)\n";
     $legend .= "\t\t-m mode\t\tchoose 'analyze' or 'inject'\n";
     $legend .= "\t\t-o filename\toutput filename in case of 'inject' mode\n";
-    $legend .= "\t\t-m filename\twith with timed metadata (see README for format)\n";
+    $legend .= "\t\t-e filename\twith with timed metadata (see README for format)\n";
     $legend .= "\t\t-d\t\tenable debug mode\n\n";
 
     $shortParameters  = "";
@@ -783,8 +788,10 @@
 	$filePosition = 0;
 	$frameCounter = 0;
     $errorCounter = 0;
+    $metaCC = 0;
     $insertedCounter = 0;
-    $ccCounter = 1;
+    $initialShift = false;
+    $ccCounters = array();
     $metastreamID = false;
     $currentStream = array();
     $currentStream['programs'] = array();
@@ -807,9 +814,19 @@
 
         if ($parsedResult['frameType'] != FRAME_TYPE_INCORRECT) {
             $frameCounter++;
-            $ccCounter++;
 
-            if ($ccCounter == 17) { $ccCounter = 1; }
+            // Check continuity counter
+            if(!isset($ccCounters[$parsedResult['streamPID']])) {
+                $ccCounters[$parsedResult['streamPID']] = -1;
+            }
+
+            $ccCounters[$parsedResult['streamPID']]++;
+            if ($ccCounters[$parsedResult['streamPID']] == 16) { $ccCounters[$parsedResult['streamPID']] = 0; }
+
+            if ($parsedResult['cc'] != $ccCounters[$parsedResult['streamPID']]) {
+                if ($debug) echo "** CC counter mismatch " . $parsedResult['cc'] . " != " .
+                    $ccCounters[$parsedResult['streamPID']] . "\n";
+            }
 
             if ($parsedResult['frameType'] == FRAME_TYPE_PAT) {
                 if ($debug) echo "PAT detected at frame " . $frameCounter . "\n";
@@ -872,13 +889,16 @@
                 // We have a frame with PTS (presentation timestamp)
                 // Therefore, we can decide whether we want to add ID3 frame next
                 if (!empty($parsedResult['timestamp'])) {
+                    if (!$initialShift) $initialShift = ($parsedResult['timestamp'] / $clockFrequency);
                     if ($debug) echo "** Timestamp received: " . $parsedResult['timestamp'] . "\n";
-                    if ($metastreamID && count($metaData) > 0 && ($parsedResult['timestamp'] / $clockFrequency) > $metaData[0]['moment']) {
-                        $metaFrame = generateMetaFrame($metaData[0]['tag'], $metastreamID, $parsedResult['raw_timestamp']);
+                    if ($metastreamID && count($metaData) > 0 && (($parsedResult['timestamp'] / $clockFrequency) - $initialShift) >= $metaData[0]['moment']) {
+                        $metaFrame = generateMetaFrame($metaData[0]['tag'], $metastreamID, $parsedResult['raw_timestamp'], $metaCC);
                         echo "Inserting ID3 frame after frame " . $frameCounter . "\n";
                         fwrite($outputHandle, $metaFrame, $packetSize);
                         array_shift($metaData);
                         $insertedCounter++;
+                        $metaCC++;
+                        if ($metaCC == 16) { $metaCC = 0; };
                     }
                 }
 
