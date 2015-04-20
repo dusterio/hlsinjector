@@ -35,10 +35,11 @@ will be on PID 0x103).
 To be compatible with Apple tools (which are not that popular, though), I decided to keep the same format. Metadata file is
 a plain text file with the following format:
 
-`<Moment> <format> <filename>`
+`<Moment> <format> <filename | tag>`
 
-Where <moment> is the time point in seconds when the piece of metadata should be shown, <format> is "id3" (it's the only
-supported format at the moment) and <filename> is an absolute or relative path to ID3 file containing metadata.
+Where <moment> is the time point in seconds when the piece of metadata should be shown, <format> is either "id3" or
+"plaintext". In case of "id3", a filename of the ID3 file must follow. If case of "plaintext", a plain text
+ID3 title should follow (will be inserted as TPE1 title).
 
 One line for each ID3 file or moment. Lines don't have to be sorted chronologically.
 

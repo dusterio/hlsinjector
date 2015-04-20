@@ -765,25 +765,26 @@
                 $oneLine = trim($oneLine);
                 if (strlen($oneLine) == 0) continue;
 
-                list($moment, $format, $metafile) = sscanf($oneLine, "%d %s %s");
-                if (!is_integer($moment) || empty($format) || empty($metafile))
+                preg_match('/^(\d+) ([a-zA-Z0-9]+) (.*)$/', $oneLine, $matches);
+
+                if (empty($matches[1]) || empty($matches[2]) || empty($matches[3]))
                     break;
 
-                if (strtolower($format) != "id3" && strtolower($format) != "plaintext") break;
-                if (intval($moment) < 0) break;
+                if (strtolower($matches[2]) != "id3" && strtolower($matches[2]) != "plaintext") break;
+                if (intval($matches[1]) < 0) break;
 
-                switch (strtolower($format)) {
+                switch (strtolower($matches[2])) {
                     case "id3":
-                        if (!file_exists($metafile)) break;
+                        if (!file_exists($matches[3])) break;
 
-                        $oneTag = file_get_contents($metafile);
+                        $oneTag = file_get_contents($matches[3]);
                         if (!$oneTag) break;
 
                         break;
 
                     case "plaintext":
-                        if(strlen($metafile) > 128) break;
-                        $oneTag = generateID3Frame($metafile);
+                        if(strlen($matches[3]) > 128) break;
+                        $oneTag = generateID3Frame($matches[3]);
 
                         break;
                 }
@@ -792,7 +793,7 @@
                 if (strlen($oneTag) > 170) die("Maximum length of ID3 file is 170 bytes\n");
 
                 $metaData[] = array(
-                    'moment' => intval($moment),
+                    'moment' => intval($matches[1]),
                     'tag' => $oneTag
                 );
             }
