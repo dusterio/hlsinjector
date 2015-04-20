@@ -836,9 +836,9 @@
 	$filePosition = 0;
 	$frameCounter = 0;
     $errorCounter = 0;
-    if(!empty($commandLineOptions['metastart']) && is_int($commandLineOptions['metastart']) &&
-        $commandLineOptions['metastart'] >= 0 && $commandLineOptions['metastart'] <= 15) {
-        $metaCC = $commandLineOptions['metastart'];
+    if(!empty($commandLineOptions['metastart']) && is_int(intval($commandLineOptions['metastart'])) &&
+        intval($commandLineOptions['metastart']) >= 0 && intval($commandLineOptions['metastart']) <= 15) {
+        $metaCC = intval($commandLineOptions['metastart']);
     } else {
         $metaCC = 0;
     }
