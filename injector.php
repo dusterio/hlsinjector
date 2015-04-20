@@ -275,7 +275,12 @@
             $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
 
             if ($debug) echo "2 bits: PTS & DTS indicator = " . $bits[0] . $bits[1] . "\n";
-            if ($bits[0] . $bits[1] == '10') { if ($debug) echo "** Only PTS is expected\n"; }
+            if ($bits[0] . $bits[1] == '10') {
+                if ($debug) echo "** Only PTS is expected\n"; $ptsOnly = true;
+            } else {
+                $ptsOnly = false;
+            }
+
             if ($debug) echo "1 bit: ESCR flag = " . $bits[2] . "\n";
             if ($debug) echo "1 bit: ES rate flag = " . $bits[3] . "\n";
             if ($debug) echo "1 bit: DSM trick mode flag = " . $bits[4] . "\n";
@@ -304,8 +309,11 @@
             // Extract PTS from the bit pattern
             $pts_bits = substr($bits, 4, 3) . substr($bits, 8, 15) . substr($bits, 24, 15);
             if ($debug) echo "PTS = " . bindec($pts_bits) . " (dec) or " . (bindec($pts_bits) / $clockFrequency) . "sec\n";
-            $response['timestamp'] = bindec($pts_bits);
-            $response['raw_timestamp'] = $bits;
+
+            if ($ptsOnly) {
+                $response['timestamp'] = bindec($pts_bits);
+                $response['raw_timestamp'] = $bits;
+            }
 
             if ($debug) echo "Seeking to data start (pos = " . $dataStart . ")\n";
             $dataContent = substr($oneFrame, $dataStart);
@@ -487,6 +495,26 @@
         return $response;
 	}
 
+    function generateID3Frame($tagContent) {
+        // At this moment maximum length is 128 because we don't want to deal with size encoding or segmentation
+        if (strlen($tagContent) > 127) return false;
+
+        // First bytes are ID3 tag + version (4) + minor version (0) + flags (all 0)
+        $frame = "ID3" . chr(04) . chr(00) . chr(00);
+
+        // 4 bytes containing ID3 size
+        // Size: original size + TPE1 + 7 extra bytes + 1 padding in the end
+        $frame .= chr(00) . chr(00) . chr(00) . chr(strlen($tagContent) + 12);
+
+        $frame .= "TPE1";
+        // Content length: real length + padding + encoding ID
+        $frame .= chr(00) . chr(00) . chr(00) . chr(strlen($tagContent) + 2);
+        $frame .= $tagContent;
+        $frame .= chr(00);
+
+        return $frame;
+    }
+
     function generateMetaFrame($metaTag, $metastreamID, $rawTimestamp, $cc) {
         global $packetSize;
 
@@ -628,9 +656,10 @@
             }
 
             $metastreamID = $highestPID + 1;
+
+            if ($debug) echo "** Stream ID " . $metastreamID . " will be used for metadata\n";
         }
 
-        echo "** Stream ID " . $metastreamID . " will be used for metadata\n";
         // Copy old table in full
         for ($i = 17 + $oldProgramInfoLength; $i <= $table_end; $i++) {
             $modifiedFrame[$pointer++] = $originalFrame[$i];
@@ -737,15 +766,27 @@
                 if (strlen($oneLine) == 0) continue;
 
                 list($moment, $format, $metafile) = sscanf($oneLine, "%d %s %s");
-                if (empty($moment) || empty($format) || empty($metafile))
+                if (!is_integer($moment) || empty($format) || empty($metafile))
                     break;
 
-                if (strtolower($format) != "id3") break;
+                if (strtolower($format) != "id3" && strtolower($format) != "plaintext") break;
                 if (intval($moment) < 0) break;
-                if (!file_exists($metafile)) break;
 
-                $oneTag = file_get_contents($metafile);
-                if (!$oneTag) break;
+                switch (strtolower($format)) {
+                    case "id3":
+                        if (!file_exists($metafile)) break;
+
+                        $oneTag = file_get_contents($metafile);
+                        if (!$oneTag) break;
+
+                        break;
+
+                    case "plaintext":
+                        if(strlen($metafile) > 128) break;
+                        $oneTag = generateID3Frame($metafile);
+
+                        break;
+                }
 
                 // We want to fit ID3 tag in single transport frame
                 if (strlen($oneTag) > 170) die("Maximum length of ID3 file is 170 bytes\n");
