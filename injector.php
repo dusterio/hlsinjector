@@ -773,7 +773,7 @@
 
                 preg_match('/^(\d+) ([a-zA-Z0-9]+) (.*)$/', $oneLine, $matches);
 
-                if (empty($matches[1]) || empty($matches[2]) || empty($matches[3]))
+                if (!isset($matches[1]) || empty($matches[2]) || empty($matches[3]))
                     break;
 
                 if (strtolower($matches[2]) != "id3" && strtolower($matches[2]) != "plaintext") break;
@@ -784,7 +784,6 @@
                         if (!file_exists($matches[3])) break;
 
                         $oneTag = file_get_contents($matches[3]);
-                        if (!$oneTag) break;
 
                         break;
 
