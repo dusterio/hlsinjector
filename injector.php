@@ -715,6 +715,7 @@
     $legend .= "\t\t-m mode\t\tchoose 'analyze' or 'inject'\n";
     $legend .= "\t\t-o filename\toutput filename in case of 'inject' mode\n";
     $legend .= "\t\t-e filename\twith with timed metadata (see README for format)\n";
+    $legend .= "\t\t--metastart N\tstart CC for metadata stream from this number\n";
     $legend .= "\t\t-d\t\tenable debug mode\n\n";
 
     $shortParameters  = "";
@@ -723,7 +724,12 @@
     $shortParameters .= "o:"; // Optional value - output filename
     $shortParameters .= "e:"; // Optional value – file with meta data
     $shortParameters .= "d"; // Optional key – debug mode
-    $commandLineOptions = getopt($shortParameters);
+
+    $longParameters  = array(
+        "metastart:"     // Required value – start CC for meta PID from this value
+    );
+
+    $commandLineOptions = getopt($shortParameters, $longParameters);
 
 	if (empty($commandLineOptions['i']) || !file_exists($commandLineOptions['i']) || empty($commandLineOptions['m'])) {
 		die($legend);
@@ -830,7 +836,13 @@
 	$filePosition = 0;
 	$frameCounter = 0;
     $errorCounter = 0;
-    $metaCC = 0;
+    if(!empty($commandLineOptions['metastart']) && is_int($commandLineOptions['metastart']) &&
+        $commandLineOptions['metastart'] >= 0 && $commandLineOptions['metastart'] <= 15) {
+        $metaCC = $commandLineOptions['metastart'];
+    } else {
+        $metaCC = 0;
+    }
+
     $insertedCounter = 0;
     $initialShift = false;
     $ccCounters = array();

@@ -12,11 +12,12 @@ You must have PHP CLI installed. Thankfully, it's totally cross-platform and fre
 `HLS Injector by Denis Mysenko
 Syntax: ./injector.php -i filename -m mode [-o filename] [-d]
 
-		-i filename	input file (MPEG TS format)
-		-m mode		choose 'analyze' or 'inject'
-		-o filename	output filename in case of 'inject' mode
-        -e filename with with timed metadata
-		-d		    enable debug mode`
+		-i filename	    input file (MPEG TS format)
+		-m mode		    choose 'analyze' or 'inject'
+		-o filename	    output filename in case of 'inject' mode
+        -e filename     with with timed metadata
+        --metastart N   start CC for metadata stream from this number
+		-d		        enable debug mode`
 
 # Work modes
 
