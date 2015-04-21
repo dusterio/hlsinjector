@@ -503,12 +503,14 @@
         $frame = "ID3" . chr(04) . chr(00) . chr(00);
 
         // 4 bytes containing ID3 size
-        // Size: original size + TPE1 + 7 extra bytes + 1 padding in the end
+        // Size: original size + 8 extra bytes + 1 padding in the end
         $frame .= chr(00) . chr(00) . chr(00) . chr(strlen($tagContent) + 12);
 
         $frame .= "TPE1";
         // Content length: real length + padding + encoding ID
         $frame .= chr(00) . chr(00) . chr(00) . chr(strlen($tagContent) + 2);
+        // Two empty bytes + encoding of 3
+        $frame .= chr(00) . chr(00) . chr(03);
         $frame .= $tagContent;
         $frame .= chr(00);
 
