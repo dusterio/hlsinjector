@@ -7,6 +7,8 @@
 	// 90Khz for MPEG TS
 	$clockFrequency = 90000;
     $debug = false;
+    // 10 megabytes – if the input file is smaller, load it into RAM fully
+    $memoryLimit = 1024 * 1024 * 10;
 
     define("FRAME_TYPE_INCORRECT", 0);
     define("FRAME_TYPE_PAT", 1);
@@ -109,11 +111,11 @@
         global $debug, $clockFrequency, $descriptorTags;
 
         $response = array();
-
         $sync_byte = $oneFrame[0];
 
         if ($debug) echo "==== TRANSPORT STREAM HEADER ====\n";
         if ($sync_byte == 'G') {
+            $response['frameType'] = FRAME_TYPE_UNKNOWN;
             if ($debug) echo "8 bits: Sync byte: OK\n";
         } else {
             $response['frameType'] = FRAME_TYPE_INCORRECT;
@@ -121,37 +123,31 @@
             return $response;
         }
 
-        $response['frameType'] = FRAME_TYPE_UNKNOWN;
+        $twoBytes = (ord($oneFrame[1]) << 8) + ord($oneFrame[2]);
 
-        $byte = decbin(ord($oneFrame[1]));
-        $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-        $byte = decbin(ord($oneFrame[2]));
-        $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-        if ($debug) echo "1 bit: Transport Error Indicator = " . $bits[0] . "\n";
-        $payloadStartIndicator = $bits[1];
+        if ($debug) echo "1 bit: Transport Error Indicator = " . (($twoBytes >> 15) & 1) . "\n";
+        $payloadStartIndicator = ($twoBytes >> 14) & 1;
         if ($debug) echo "1 bit: Payload Unit Start Indicator = " . $payloadStartIndicator . "\n";
-        if ($debug) echo "1 bit: Transport Priority = " . $bits[2] . "\n";
-        $streamPID = bindec(substr($bits, 3, 13));
-        $response['streamPID'] = $streamPID;
-        if ($debug) echo "13 bits: PID (dec: " . $streamPID . " hex: 0x" .
-            dechex($streamPID) . ")\n";
+        if ($debug) echo "1 bit: Transport Priority = " . (($twoBytes >> 13) & 1) . "\n";
 
-        if (bindec(substr($bits, 3, 13)) == 0) {
-            // PAT frame detected
+        $response['streamPID'] = ($twoBytes & 8191);
+        if ($debug) echo "13 bits: PID (dec: " . $response['streamPID'] . " hex: 0x" . dechex($response['streamPID']) . ")\n";
+
+        // PAT frame detected, its PID is always 0
+        if ($response['streamPID'] == 0) {
             $response['frameType'] = FRAME_TYPE_PAT;
         }
 
-        $byte = decbin(ord($oneFrame[3]));
-        $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-        if ($debug) echo "2 bits: Scrambling control = " . $bits[0] . $bits[1] . "\n";
-        if ($debug) echo "1 bit: Adaptation field exists = " . $bits[2] . "\n";
-        if ($debug) echo "1 bit: Payload exists = " . $bits[3] . "\n";
-        if ($debug) echo "4 bits: Continuity counter = " . substr($bits, 4, 4) . " (dec: " . bindec(substr($bits, 4, 4)) . ")\n";
-        $response['cc'] = bindec(substr($bits, 4, 4));
+        $oneByte = ord($oneFrame[3]);
+        if ($debug) echo "2 bits: Scrambling control = " . (($oneByte >> 6) & 3) . "\n";
+        if ($debug) echo "1 bit: Adaptation field exists = " . (($oneByte >> 5) & 1) . "\n";
+        if ($debug) echo "1 bit: Payload exists = " . (($oneByte >> 4) & 1) . "\n";
 
-        $pes_start = substr($oneFrame, 4, 3);
-        if (ord($pes_start[0]) == 0 && ord($pes_start[1]) == 0 && ord($pes_start[2]) == 1 && $response['frameType'] == FRAME_TYPE_UNKNOWN) {
-            // PES frame detected
+        $response['cc'] = $oneByte & 15;
+        if ($debug) echo "4 bits: Continuity counter = " . $response['cc'] . "\n";
+
+        // PES frame detected
+        if (ord($oneFrame[4]) == 0 && ord($oneFrame[5]) == 0 && ord($oneFrame[6]) == 1 && $response['frameType'] == FRAME_TYPE_UNKNOWN) {
             $response['frameType'] = FRAME_TYPE_PES;
         }
 
@@ -164,32 +160,25 @@
                 return $response;
             }
 
-            $table_id = $oneFrame[5];
-            if ($debug) echo "8 bits: Table ID = " . ord($table_id) . " (dec)\n";
+            $table_id = ord($oneFrame[5]);
+            if ($debug) echo "8 bits: Table ID = " . $table_id . " (dec)\n";
 
-            $byte = decbin(ord($oneFrame[6]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[7]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "1 bit: Section index indicator = " . $bits[0] . "\n";
-            if ($debug) echo "1 bit: Private bit = " . $bits[1] . "\n";
-            if ($debug) echo "2 bits: Reserved bits = " . $bits[2] . $bits[3] . "\n";
-            if ($debug) echo "2 bits: Section length unused = " . $bits[4] . $bits[5] . "\n";
+            $twoBytes = (ord($oneFrame[6]) << 8) + ord($oneFrame[7]);
+            if ($debug) echo "1 bit: Section index indicator = " . (($twoBytes >> 15) & 1) . "\n";
+            if ($debug) echo "1 bit: Private bit = " . (($twoBytes >> 14) & 1) . "\n";
+            if ($debug) echo "2 bits: Reserved bits = " . (($twoBytes >> 12) & 3) . "\n";
+            if ($debug) echo "2 bits: Section length unused = " . (($twoBytes >> 10) & 3) . "\n";
             // Section length will be used to build a correct loop below
-            $section_length = bindec(substr($bits, 6));
+            $section_length = $twoBytes & 1023;
             if ($debug) echo "10 bits: Section length = " . $section_length . "\n";
 
-            $byte = decbin(ord($oneFrame[8]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[9]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "16 bits: Table ID extension = " . bindec($bits) . "\n";
+            $twoBytes = (ord($oneFrame[8]) << 8) + ord($oneFrame[9]);
+            if ($debug) echo "16 bits: Table ID extension = " . $twoBytes . "\n";
 
-            $byte = decbin(ord($oneFrame[10]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "2 bits: Reserved bits = " . $bits[0] . $bits[1] . "\n";
-            if ($debug) echo "5 bits: Version number = " . bindec(substr($bits, 2, 5)) . "\n";
-            if ($debug) echo "1 bits: Current/next indicator = " . $bits[7] . "\n";
+            $oneByte = ord($oneFrame[10]);
+            if ($debug) echo "2 bits: Reserved bits = " . (($oneByte >> 6) & 3) . "\n";
+            if ($debug) echo "5 bits: Version number = " . (($oneByte >> 1) & 31) . "\n";
+            if ($debug) echo "1 bits: Current/next indicator = " . ($oneByte & 1) . "\n";
 
             if ($debug) echo "8 bits: Section number = " . ord($oneFrame[11]) . "\n";
             if ($debug) echo "8 bits: Last section number = " . ord($oneFrame[12]) . "\n";
@@ -197,25 +186,18 @@
             if ($debug) echo "** Program list loop start\n";
             $response['programs'] = array();
             for($i = 13; $i < 8 + $section_length - 4;) {
-                $byte = decbin(ord($oneFrame[$i]));
-                $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-                $byte = decbin(ord($oneFrame[$i + 1]));
-                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-                $programId = bindec($bits);
+                $programId = (ord($oneFrame[$i]) << 8) + ord($oneFrame[$i + 1]);
                 if ($debug) echo "16 bits: Program number = " . $programId . "\n";
 
-                $byte = decbin(ord($oneFrame[$i + 2]));
-                $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-                $byte = decbin(ord($oneFrame[$i + 3]));
-                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-
-                if ($debug) echo "3 bits: Reserved bits = " . $bits[0] . $bits[1] . $bits[2] . "\n";
-                if ($debug) echo "13 bits: Network/program PID " . bindec(substr($bits, 3)) . " (dec) / 0x" .
-                    dechex(bindec(substr($bits, 3))) . " (hex)\n";
+                $twoBytes = (ord($oneFrame[$i + 2]) << 8) + ord($oneFrame[$i + 3]);
+                if ($debug) echo "3 bits: Reserved bits = " . (($twoBytes >> 12) & 7) . "\n";
+                $pid = ($twoBytes & 8191);
+                if ($debug) echo "13 bits: Network/program PID " . $pid . " (dec) / 0x" .
+                    dechex($pid) . " (hex)\n";
 
                 $response['programs'][] = array(
                     'id' => $programId,
-                    'PMTPID' => bindec(substr($bits, 3))
+                    'PMTPID' => $pid
                 );
 
                 $i = $i + 4;
@@ -224,19 +206,10 @@
 
             // Computing checksum and verifying it against the one supplied in the stream
             $crc32 = substr($oneFrame, 17, 4);
-
             $tableContent = substr($oneFrame, 5, $section_length - 1 + 4);
+            $crc = ($crc32[0] << 24) + ($crc32[1] << 16) + ($crc32[2] << 8) + $crc32[3];
 
-            $byte = decbin(ord($crc32[0]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($crc32[1]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($crc32[2]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($crc32[3]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-
-            if ($debug) echo "** CRC checksum contained = 0x" . dechex(bindec($bits)) . "\n";
+            if ($debug) echo "** CRC checksum contained = 0x" . dechex($crc) . "\n";
             if (calculateCRC($tableContent) == 0) {
                 if ($debug) echo "** CRC checksum check success\n";
             } else {
@@ -249,79 +222,96 @@
 
             $stream_id = ord($oneFrame[7]);
             if ($debug) echo "8 bits: Stream ID = " . $stream_id . " (dec) / 0x" . dechex($stream_id) ." (hex)\n";
-            $byte = decbin(ord($oneFrame[8]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[9]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "16 bits: PES packet length = " . bindec($bits) . " (bytes)\n";
-            $byte = decbin(ord($oneFrame[10]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
+
+            if ($debug) echo "16 bits: PES packet length = " . (($oneFrame[8] << 8) + $oneFrame[9]) . " (bytes)\n";
+
+            $oneByte = ord($oneFrame[10]);
 
             if($debug) echo "==== OPTIONAL PES HEADER ====\n";
-            if ($bits[0] == '1' && $bits[1] == '0') {
+            if ((($oneByte >> 7) & 1) == 1 && (($oneByte >> 6) & 1) == 0) {
                 if ($debug) echo "2 bits: Optional header marker: OK\n";
             } else {
                 // No optional PES header detected, aborting
                 $response['frameType'] == FRAME_TYPE_UNKNOWN;
                 return $response;
             }
-            if ($debug) echo "2 bits: Scrambling control = " . $bits[2] . $bits[3] . "\n";
-            if ($debug) echo "1 bit: Priority = " . $bits[4] . "\n";
-            if ($debug) echo "1 bit: Data alignment indicator = " . $bits[5] . "\n";
-            if ($debug) echo "1 bit: Copyright = " . $bits[6] . "\n";
-            if ($debug) echo "1 bit: Original or copy = " . $bits[7] . "\n";
 
-            $byte = decbin(ord($oneFrame[11]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
+            if ($debug) echo "2 bits: Scrambling control = " . (($oneByte >> 4) & 3) . "\n";
+            if ($debug) echo "1 bit: Priority = " . (($oneByte >> 3) & 1) . "\n";
+            if ($debug) echo "1 bit: Data alignment indicator = " . (($oneByte >> 2) & 1) . "\n";
+            if ($debug) echo "1 bit: Copyright = " . (($oneByte >> 1) & 1) . "\n";
+            if ($debug) echo "1 bit: Original or copy = " . ($oneByte & 1) . "\n";
 
-            if ($debug) echo "2 bits: PTS & DTS indicator = " . $bits[0] . $bits[1] . "\n";
-            if ($bits[0] . $bits[1] == '10') {
-                if ($debug) echo "** Only PTS is expected\n"; $ptsOnly = true;
+            $oneByte = ord($oneFrame[11]);
+
+            if ($debug) echo "2 bits: PTS & DTS indicator = " . (($oneByte >> 6) & 3) . "\n";
+            if ((($oneByte >> 6) & 3) == 2) {
+                if ($debug) echo "** Only PTS is expected\n";
+                $ptsOnly = true;
             } else {
+                // We can only parse PTS at the moment anyway
                 $ptsOnly = false;
+                return $response;
             }
 
-            if ($debug) echo "1 bit: ESCR flag = " . $bits[2] . "\n";
-            if ($debug) echo "1 bit: ES rate flag = " . $bits[3] . "\n";
-            if ($debug) echo "1 bit: DSM trick mode flag = " . $bits[4] . "\n";
-            if ($debug) echo "1 bit: Copy info flag = " . $bits[5] . "\n";
-            if ($debug) echo "1 bit: CRC flag = " . $bits[6] . "\n";
-            if ($debug) echo "1 bit: Extension flag = " . $bits[7] . "\n";
+            if ($debug) echo "1 bit: ESCR flag = " . (($oneByte >> 5) & 1) . "\n";
+            if ($debug) echo "1 bit: ES rate flag = " . (($oneByte >> 4) & 1) . "\n";
+            if ($debug) echo "1 bit: DSM trick mode flag = " . (($oneByte >> 3) & 1) . "\n";
+            if ($debug) echo "1 bit: Copy info flag = " . (($oneByte >> 2) & 1) . "\n";
+            if ($debug) echo "1 bit: CRC flag = " . (($oneByte >> 1) & 1) . "\n";
+            if ($debug) echo "1 bit: Extension flag = " . ($oneByte & 1) . "\n";
 
             if ($debug) echo "8 bits: PES header length = " . ord($oneFrame[12]) . " (bytes)\n";
             $dataStart = 14 + ord($oneFrame[12]) - 1;
             if ($debug) echo "** Data will start at " . $dataStart . " bytes\n";
 
-            $byte = decbin(ord($oneFrame[13]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[14]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[15]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[16]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[17]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
+            // 0100 1100  0010 1100  0010 1100  0010 1100  0010 1100
+            $oneByte = ord($oneFrame[13]);
 
-            if ($debug && $bits[0] . $bits[1] . $bits[2] . $bits[3] == '0010')
+            if ($debug && (($oneByte >> 4) & 15) == 2) {
                 echo "4 bits: PTS padding: OK\n";
-
-            // Extract PTS from the bit pattern
-            $pts_bits = substr($bits, 4, 3) . substr($bits, 8, 15) . substr($bits, 24, 15);
-            if ($debug) echo "PTS = " . bindec($pts_bits) . " (dec) or " . (bindec($pts_bits) / $clockFrequency) . "sec\n";
-
-            if ($ptsOnly) {
-                $response['timestamp'] = bindec($pts_bits);
-                $response['raw_timestamp'] = $bits;
+            } else {
+                return $response;
             }
 
-            if ($debug) echo "Seeking to data start (pos = " . $dataStart . ")\n";
-            $dataContent = substr($oneFrame, $dataStart);
+            // Use bitwise operators on 64 bit systems
+            if (PHP_INT_SIZE == 8) {
+                $fiveBytes = (ord($oneFrame[13]) << 32) + (ord($oneFrame[14]) << 24) + (ord($oneFrame[15]) << 16) + (ord($oneFrame[16]) << 8) + ord($oneFrame[17]);
+                $pts = 0;
+                $pts += ($fiveBytes >> 3) & (0x0007 << 30);
+                $pts += ($fiveBytes >> 2) & (0x7fff << 15);
+                $pts += ($fiveBytes >> 1) & (0x7fff <<  0);
+            } else {
+                // Extract PTS from the bit pattern
+                $byte = decbin(ord($oneFrame[13]));
+                $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
+                $byte = decbin(ord($oneFrame[14]));
+                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
+                $byte = decbin(ord($oneFrame[15]));
+                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
+                $byte = decbin(ord($oneFrame[16]));
+                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
+                $byte = decbin(ord($oneFrame[17]));
+                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
 
-            if ($debug) echo "Meta content: " . preg_replace('/ +/', ' ', preg_replace('/[^A-Za-z0-9]/', ' ', $dataContent)) . "\n";
+                $pts_bits = substr($bits, 4, 3) . substr($bits, 8, 15) . substr($bits, 24, 15);
+                $pts = bindec($pts_bits);
+            }
 
-            if (substr($dataContent, 0, 3) == "ID3") {
-                echo "** ID3 metadata detected at PTS " . (bindec($pts_bits) / $clockFrequency) . "sec(s) \n";
+            if ($debug) echo "PTS = " . $pts . " (dec) or " . ($pts / $clockFrequency) . "sec\n";
+
+            if ($ptsOnly) {
+                $response['timestamp'] = $pts;
+                $response['raw_timestamp'] = $oneFrame[13] . $oneFrame[14] . $oneFrame[15] . $oneFrame[16] . $oneFrame[17];
+            }
+
+            if ($debug) {
+                echo "Seeking to data start (pos = " . $dataStart . ")\n";
+                $dataContent = substr($oneFrame, $dataStart);
+                echo "Meta content: " . preg_replace('/ +/', ' ', preg_replace('/[^A-Za-z0-9]/', ' ', $dataContent)) . "\n";
+                if (substr($dataContent, 0, 3) == "ID3") {
+                    echo "** ID3 metadata detected at PTS " . ($pts / $clockFrequency) . "sec(s) \n";
+                }
             }
         } else {
             if ($payloadStartIndicator != 1 || ord($oneFrame[4]) != 0) {
@@ -333,35 +323,29 @@
             $table_id = ord($oneFrame[5]);
             if ($debug) echo "8 bits: Table ID = " . $table_id . " (dec)\n";
 
-            $byte = decbin(ord($oneFrame[6]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[7]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "1 bit: Section index indicator = " . $bits[0] . "\n";
-            if ($debug) echo "1 bit: Private bit = " . $bits[1] . "\n";
-            if ($debug) echo "2 bits: Reserved bits = " . $bits[2] . $bits[3] . "\n";
+            $twoBytes = (ord($oneFrame[6]) << 8) + ord($oneFrame[7]);
+
+            if ($debug) echo "1 bit: Section index indicator = " . (($twoBytes >> 15) & 1) . "\n";
+            if ($debug) echo "1 bit: Private bit = " . (($twoBytes >> 14) & 1) . "\n";
+            if ($debug) echo "2 bits: Reserved bits = " . (($twoBytes >> 12) & 3) . "\n";
 
             // Looks like a PMT table (we know it's not a PAT table already)
-            if ($table_id == 2 && $bits[1] == '0' && $bits[2] . $bits[3] == '11') {
+            if ($table_id == 2 && (($twoBytes >> 14) & 1) == 0 && (($twoBytes >> 12) & 3) == 3) {
                 $response['frameType'] = FRAME_TYPE_PMT;
             }
 
-            if ($debug) echo "2 bits: Section length unused = " . $bits[4] . $bits[5] . "\n";
+            if ($debug) echo "2 bits: Section length unused = " . (($twoBytes >> 10) & 3) . "\n";
             // Section length will be used to build a correct loop below
-            $section_length = bindec(substr($bits, 6));
+            $section_length = $twoBytes & 1023;
             if ($debug) echo "10 bits: Section length = " . $section_length . "\n";
 
-            $byte = decbin(ord($oneFrame[8]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[9]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "16 bits: Table ID extension = " . bindec($bits) . "\n";
+            $table_id = (ord($oneFrame[8]) << 8) + ord($oneFrame[9]);
+            if ($debug) echo "16 bits: Table ID extension = " . $table_id . "\n";
 
-            $byte = decbin(ord($oneFrame[10]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "2 bits: Reserved bits = " . $bits[0] . $bits[1] . "\n";
-            if ($debug) echo "5 bits: Version number = " . bindec(substr($bits, 2, 5)) . "\n";
-            if ($debug) echo "1 bits: Current/next indicator = " . $bits[7] . "\n";
+            $oneByte = ord($oneFrame[10]);
+            if ($debug) echo "2 bits: Reserved bits = " . (($oneByte >> 6) & 3) . "\n";
+            if ($debug) echo "5 bits: Version number = " . (($oneByte >> 1) & 31) . "\n";
+            if ($debug) echo "1 bits: Current/next indicator = " . ($oneByte & 1) . "\n";
 
             if ($debug) echo "8 bits: Section number = " . ord($oneFrame[11]) . "\n";
             if ($debug) echo "8 bits: Last section number = " . ord($oneFrame[12]) . "\n";
@@ -372,23 +356,16 @@
                 return $response;
             }
 
-            $byte = decbin(ord($oneFrame[13]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[14]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "3 bits: Reserved bits = " . $bits[0] . $bits[1] . $bits[2] . "\n";
-            if ($debug) echo "13 bits: PCR PID = " . bindec(substr($bits, 3)) . " (dec) / 0x" .
-                dechex(bindec(substr($bits, 3))) . " (hex)\n";
+            $twoBytes = (ord($oneFrame[13]) << 8) + ord($oneFrame[14]);
+            if ($debug) echo "3 bits: Reserved bits = " . (($twoBytes >> 13) & 7) . "\n";
+            $response['PCRPID'] = $twoBytes & 8191;
+            if ($debug) echo "13 bits: PCR PID = " . $response['PCRPID'] . " (dec) / 0x" .
+                dechex($response['PCRPID']) . " (hex)\n";
 
-            $response['PCRPID'] = bindec(substr($bits, 3));
-
-            $byte = decbin(ord($oneFrame[15]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($oneFrame[16]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            if ($debug) echo "4 bits: Reserved bits = " . $bits[0] . $bits[1] . $bits[2] . $bits[3] . "\n";
-            if ($debug) echo "2 bits: Program info unused bits = " . $bits[4] . $bits[5] . "\n";
-            $programInfoLength = bindec(substr($bits, 6));
+            $twoBytes = (ord($oneFrame[15]) << 8) + ord($oneFrame[16]);
+            if ($debug) echo "4 bits: Reserved bits = " . (($twoBytes >> 12) & 15) . "\n";
+            if ($debug) echo "2 bits: Program info unused bits = " . (($twoBytes >> 10) & 3) . "\n";
+            $programInfoLength = $twoBytes & 1023;
             if ($debug) echo "10 bits: Program info length = " . $programInfoLength . " bytes\n";
 
             if ($programInfoLength > 0) {
@@ -424,26 +401,21 @@
                 $typeTitle = empty($descriptorTags[ord($oneFrame[$i])]) ? "N/A" : $descriptorTags[ord($oneFrame[$i])];
                 if ($debug) echo "8 bits: Stream type = " . ord($oneFrame[$i]) . " (" . $typeTitle . ") \n";
 
-                $byte = decbin(ord($oneFrame[$i + 1]));
-                $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-                $byte = decbin(ord($oneFrame[$i + 2]));
-                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-                if ($debug) echo "3 bits: Reserved bits = " . $bits[0] . $bits[1] . $bits[2] . "\n";
-                $streamId = bindec(substr($bits, 3));
+                $twoBytes = (ord($oneFrame[$i + 1]) << 8) + ord($oneFrame[$i + 2]);
+                if ($debug) echo "3 bits: Reserved bits = " . (($twoBytes >> 13) & 7) . "\n";
+                $streamId = $twoBytes & 8191;
                 if ($debug) echo "13 bits: Elementary PID = " . $streamId . " (dec) / 0x" .
                     dechex($streamId) . " (hex)\n";
 
-                $byte = decbin(ord($oneFrame[$i + 3]));
-                $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-                $byte = decbin(ord($oneFrame[$i + 4]));
-                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
+                $twoBytes = (ord($oneFrame[$i + 3]) << 8) + ord($oneFrame[$i + 4]);
 
-                if ($debug) echo "4 bits: Reserved bits = " . $bits[0] . $bits[1] . $bits[2] . $bits[3] . "\n";
-                if ($debug) echo "2 bits: ES Info length unused = " . $bits[4] . $bits[5] . "\n";
-                if ($debug) echo "10 bits: ES Info length = " . bindec(substr($bits, 6)) . " bytes\n";
+                if ($debug) echo "4 bits: Reserved bits = " . (($twoBytes >> 12) & 15) . "\n";
+                if ($debug) echo "2 bits: ES Info length unused = " . (($twoBytes >> 10) & 3) . "\n";
+                $info_length = $twoBytes & 1023;
+                if ($debug) echo "10 bits: ES Info length = " . $info_length . " bytes\n";
 
-                if (bindec(substr($bits, 6)) > 0) {
-                    for($ii = $i + 5; $ii < $i + 5 + bindec(substr($bits, 6)); ) {
+                if ($info_length > 0) {
+                    for($ii = $i + 5; $ii < $i + 5 + $info_length; ) {
                         $typeTitle = empty($descriptorTags[ord($oneFrame[$ii])]) ? "N/A" : $descriptorTags[ord($oneFrame[$ii])];
                         if ($debug) echo "\t8 bits: Descriptor tag = " . ord($oneFrame[$ii]) . " (" . $typeTitle . ")\n";
                         if ($debug) echo "\t8 bits: Descriptor length = " . ord($oneFrame[$ii + 1]) . "\n";
@@ -464,26 +436,17 @@
                     'type' => ord($oneFrame[$i])
                 );
 
-                $i = $i + 5 + bindec(substr($bits, 6));
+                $i = $i + 5 + $info_length;
                 if ($debug) echo "\n";
             }
             if ($debug) echo "** Program loop end\n";
 
             // Computing checksum and verifying it against the one supplied in the stream
             $crc32 = substr($oneFrame, $table_end + 1, 4);
-
             $tableContent = substr($oneFrame, 5, $section_length - 1 + 4);
+            $crc = ($crc32[0] << 24) + ($crc32[1] << 16) + ($crc32[2] << 8) + $crc32[3];
 
-            $byte = decbin(ord($crc32[0]));
-            $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($crc32[1]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($crc32[2]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-            $byte = decbin(ord($crc32[3]));
-            $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-
-            if ($debug) echo "** CRC checksum contained = 0x" . dechex(bindec($bits)) . "\n";
+            if ($debug) echo "** CRC checksum contained = 0x" . dechex($crc) . "\n";
             if (calculateCRC($tableContent) == 0) {
                 if ($debug) echo "** CRC checksum check success\n";
             } else {
@@ -554,11 +517,11 @@
         $metaFrame[10] = chr(bindec("10000100"));
         $metaFrame[11] = chr(bindec("10000000"));
         $metaFrame[12] = chr($packetSize - strlen($metaTag) - 13); // PES header length
-        $metaFrame[13] = chr(bindec(substr($rawTimestamp, 0, 8)));
-        $metaFrame[14] = chr(bindec(substr($rawTimestamp, 8, 8)));
-        $metaFrame[15] = chr(bindec(substr($rawTimestamp, 16, 8)));
-        $metaFrame[16] = chr(bindec(substr($rawTimestamp, 24, 8)));
-        $metaFrame[17] = chr(bindec(substr($rawTimestamp, 32, 8)));
+        $metaFrame[13] = $rawTimestamp[0];
+        $metaFrame[14] = $rawTimestamp[1];
+        $metaFrame[15] = $rawTimestamp[2];
+        $metaFrame[16] = $rawTimestamp[3];
+        $metaFrame[17] = $rawTimestamp[4];
 
         return $metaFrame;
     }
@@ -762,6 +725,7 @@
         $outputFile = $commandLineOptions['o'];
         if (file_exists($outputFile)) unlink($outputFile);
         $outputHandle = fopen($outputFile, "a");
+        $outputContent = "";
 
         if (!file_exists($commandLineOptions['e'])) die("Cannot open metadata file\n");
 
@@ -828,15 +792,27 @@
 
     if (array_key_exists('d', $commandLineOptions)) $debug = true;
 
-    // Correct MPEG TS stream is comprised of equal, 188 byte packets
-	if (filesize($filename) % $packetSize != 0) {
-		die("Broken MPEG TS stream – filesize must be a power of " . $packetSize . "\n");
-	}
+    $inputFileSize = filesize($filename);
 
-	$inputHandle = fopen($filename, "r");
+    // Correct MPEG TS stream is comprised of equal, 188 byte packets
+	if ($inputFileSize % $packetSize != 0) {
+		die("Broken MPEG TS stream – filesize must be a power of " . $packetSize . "\n");
+	} else {
+        // Read the whole file into memory
+
+        if ($inputFileSize > $memoryLimit) {
+            $inputContent = false;
+            $inputHandle = fopen($filename, "r");
+        } else {
+            $inputContent = file_get_contents($filename);
+            $inputHandle = false;
+        }
+    }
+
 	$filePosition = 0;
 	$frameCounter = 0;
     $errorCounter = 0;
+
     if(!empty($commandLineOptions['metastart']) && is_int(intval($commandLineOptions['metastart'])) &&
         intval($commandLineOptions['metastart']) >= 0 && intval($commandLineOptions['metastart']) <= 15) {
         $metaCC = intval($commandLineOptions['metastart']);
@@ -850,15 +826,14 @@
     $metastreamID = false;
     $currentStream = array();
     $currentStream['programs'] = array();
+    $startTime = microtime(true);
 
-	while($filePosition < filesize($filename)) {
-		fseek($inputHandle, $filePosition);
-		if ($debug) echo "Seeking to " . ftell($inputHandle) . "\n";
-
-		$oneFrame = fread($inputHandle, $packetSize);
-
-		if (strlen($oneFrame) != $packetSize) die("Received frame of incorrect size != " . $packetSize . " (pos=" .
-            $filePosition . ")\n");
+	while($filePosition < $inputFileSize) {
+        if ($inputHandle) {
+            $oneFrame = fread($inputHandle, $packetSize);
+        } else {
+            $oneFrame = substr($inputContent, $filePosition, $packetSize);
+        }
 
 		$parsedResult = parseFrame($oneFrame);
 
@@ -946,18 +921,22 @@
                 if (!empty($parsedResult['timestamp'])) {
                     if (!$initialShift) $initialShift = ($parsedResult['timestamp'] / $clockFrequency);
                     if ($debug) echo "** Timestamp received: " . $parsedResult['timestamp'] . "\n";
-                    if ($metastreamID && count($metaData) > 0 && (($parsedResult['timestamp'] / $clockFrequency) - $initialShift) >= $metaData[0]['moment']) {
-                        $metaFrame = generateMetaFrame($metaData[0]['tag'], $metastreamID, $parsedResult['raw_timestamp'], $metaCC);
-                        echo "Inserting ID3 frame after frame " . $frameCounter . "\n";
-                        fwrite($outputHandle, $metaFrame, $packetSize);
-                        array_shift($metaData);
-                        $insertedCounter++;
-                        $metaCC++;
-                        if ($metaCC == 16) { $metaCC = 0; };
+                    if (count($metaData) > 0) {
+                        if ($metastreamID && (($parsedResult['timestamp'] / $clockFrequency) - $initialShift) >= $metaData[0]['moment']) {
+                            $metaFrame = generateMetaFrame($metaData[0]['tag'], $metastreamID, $parsedResult['raw_timestamp'], $metaCC);
+                            echo "Inserting ID3 frame after frame " . $frameCounter . "\n";
+                            //fwrite($outputHandle, $metaFrame, $packetSize);
+                            $outputContent .= $metaFrame;
+                            array_shift($metaData);
+                            $insertedCounter++;
+                            $metaCC++;
+                            if ($metaCC == 16) { $metaCC = 0; };
+                        }
                     }
                 }
 
-                fwrite($outputHandle, $oneFrame, $packetSize);
+                $outputContent .= $oneFrame;
+                //fwrite($outputHandle, $oneFrame, $packetSize);
             }
         } else {
             $errorCounter++;
@@ -977,7 +956,11 @@
     echo "Parsed " . $frameCounter . " MPEG TS frames with " . $errorCounter . " errors\n";
     echo "Total of " . count($currentStream['programs']) . " programs and " . $streamCounter . " streams\n";
 
-    if ($launchMode == LAUNCH_MODE_INJECT) echo "Injected " . $insertedCounter . " frames\n";
+    if ($launchMode == LAUNCH_MODE_INJECT) {
+        fwrite($outputHandle, $outputContent);
+        echo "Injected " . $insertedCounter . " frames\n";
+    }
 
-	fclose($inputHandle);
+	if ($inputHandle) fclose($inputHandle);
     if ($launchMode == LAUNCH_MODE_INJECT) fclose($outputHandle);
+    echo "Finished in " . round(((microtime(true) - $startTime) * 1000), 3) . "ms\n";
