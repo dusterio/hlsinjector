@@ -527,51 +527,46 @@
         return $metaFrame;
     }
 
+    function modifyFrameCC($originalFrame, $cc = 0) {
+        if ($cc < 0 || $cc > 15) $cc = 0;
+
+        $newCC = ord($originalFrame[3]) & 240;
+        $newCC += $cc;
+
+        $originalFrame[3] = chr($newCC);
+        return $originalFrame;
+    }
+
     function modifyFramePMT($originalFrame, $metastreamID = null) {
         global $debug, $appleMetaDescriptor, $appleMetaStream, $packetSize;
 
         // Create a blank filled frame
-        $modifiedFrame = "";
-        for($i = 0; $i < $packetSize; $i++) {
-            $modifiedFrame .= chr(0xff);
-        }
-
+        $modifiedFrame = str_pad("", $packetSize, chr(0xff));
         $extraBytes = 0;
 
-        // Copy first 6 bytes without change: 4 bytes of TS header, 1 pointer field + 1 table id
-        for($i = 0; $i < 6; $i++) {
-            $modifiedFrame[$i] = $originalFrame[$i];
-        }
-
         // Old section length
-        $byte = decbin(ord($originalFrame[6]));
-        $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-        $byte = decbin(ord($originalFrame[7]));
-        $sectionLengthBits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-        $section_length = bindec(substr($sectionLengthBits, 6));
+        $twoBytes = (ord($originalFrame[6]) << 8) + ord($originalFrame[7]);
+        $section_length = $twoBytes & 1023;
         if ($debug) echo "10 bits: Old section length = " . $section_length . "\n";
 
         // These bytes can be plain copied
-        for($i = 8; $i < 15; $i++) {
+        for($i = 0; $i < 16; $i++) {
             $modifiedFrame[$i] = $originalFrame[$i];
         }
 
         // Calculate old program info length
-        $byte = decbin(ord($originalFrame[15]));
-        $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-        $byte = decbin(ord($originalFrame[16]));
-        $programInfoBits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-        $programInfoLength = bindec(substr($programInfoBits, 6));
+        $twoBytes = (ord($originalFrame[15]) << 8) + ord($originalFrame[16]);
+        $programInfoLength = $twoBytes & 1023;
         $oldProgramInfoLength = $programInfoLength;
-        if ($debug) echo "10 bits: Old program info length = " . $programInfoLength . " bytes\n";
+        if ($debug) echo "10 bits: Old program info length = " . $oldProgramInfoLength . " bytes\n";
 
-        if ($programInfoLength > 0) {
+        if ($oldProgramInfoLength > 0) {
             // Copy old descriptors without change
-            for($ii = 17; $ii <= 17 + $programInfoLength; $ii++) {
+            for($ii = 17; $ii <= 17 + $oldProgramInfoLength; $ii++) {
                 $modifiedFrame[$ii] = $originalFrame[$ii];
             }
 
-            $pointer = 17 + $programInfoLength;
+            $pointer = 17 + $oldProgramInfoLength;
         } else {
             $pointer = 17;
         }
@@ -587,13 +582,12 @@
         }
 
         // Modify program info length
-        $programInfoLength = $oldProgramInfoLength + 2 + count($appleMetaDescriptor['content']);
+        $programInfoLength = $oldProgramInfoLength + $extraBytes;
+        //2 + count($appleMetaDescriptor['content']);
         if ($debug) echo "New program info length = " . $programInfoLength . "\n";
-        $byte = decbin($programInfoLength);
-        $bits = str_pad($byte, 10, 0, STR_PAD_LEFT);
-        $programInfoBits = substr($programInfoBits, 0, 6) . $bits;
-        $modifiedFrame['15'] = chr(bindec(substr($programInfoBits, 0, 8)));
-        $modifiedFrame['16'] = chr(bindec(substr($programInfoBits, 8, 8)));
+        if ($extraBytes < 256) {
+            $modifiedFrame[16] = chr($programInfoLength);
+        }
 
         // Table size is full section length minus 4 bytes of CRC32 in the end and minus
         // 4 bytes of data above
@@ -602,27 +596,20 @@
         if ($metastreamID == null) {
             $highestPID = 0;
             for ($i = 17 + $oldProgramInfoLength; $i <= $table_end; ) {
-                $byte = decbin(ord($originalFrame[$i + 1]));
-                $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-                $byte = decbin(ord($originalFrame[$i + 2]));
-                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-                $streamId = bindec(substr($bits, 3));
+                $twoBytes = (ord($originalFrame[$i + 1]) << 8) + ord($originalFrame[$i + 2]);
+
+                $streamId = $twoBytes & 8191;
                 if ($debug) echo "13 bits: Elementary PID = " . $streamId . " (dec) / 0x" .
                     dechex($streamId) . " (hex)\n";
 
                 // Find the highest (numerically) stream PID
                 if ($streamId > $highestPID) { $highestPID = $streamId; }
+                $twoBytes = (ord($originalFrame[$i + 3]) << 8) + ord($originalFrame[$i + 4]);
 
-                $byte = decbin(ord($originalFrame[$i + 3]));
-                $bits = str_pad($byte, 8, 0, STR_PAD_LEFT);
-                $byte = decbin(ord($originalFrame[$i + 4]));
-                $bits = $bits . str_pad($byte, 8, 0, STR_PAD_LEFT);
-
-                $i = $i + 5 + bindec(substr($bits, 6));
+                $i = $i + 5 + ($twoBytes & 1023);
             }
 
             $metastreamID = $highestPID + 1;
-
             if ($debug) echo "** Stream ID " . $metastreamID . " will be used for metadata\n";
         }
 
@@ -653,11 +640,13 @@
 
         // Modify section length
         $section_length = $section_length + $extraBytes;
-        $newBits = str_pad(decbin($section_length), 10, 0, STR_PAD_LEFT);
-        $newBits = substr($sectionLengthBits, 0, 6) . $newBits;
+        if ($extraBytes < 256) {
+            $modifiedFrame['7'] = chr(ord($modifiedFrame['7']) + $extraBytes);
+        }
+        //$newBits = substr($sectionLengthBits, 0, 6) . $newBits;
         if ($debug) echo "10 bits: New section length = " . $section_length . "\n";
-        $modifiedFrame[6] = chr(bindec(substr($newBits, 0, 8)));
-        $modifiedFrame[7] = chr(bindec(substr($newBits, 8, 8)));
+        //$modifiedFrame[6] = chr(bindec(substr($newBits, 0, 8)));
+        //$modifiedFrame[7] = chr(bindec(substr($newBits, 8, 8)));
 
         // Computing checksum and verifying it against the one supplied in the stream
 
@@ -824,7 +813,7 @@
     $insertedCounter = 0;
     $initialShift = false;
     $ccCounters = array();
-    $metastreamID = false;
+    $metastreamID = null;
     $currentStream = array();
     $currentStream['programs'] = array();
     $startTime = microtime(true);
@@ -836,6 +825,8 @@
             $oneFrame = substr($inputContent, $filePosition, $packetSize);
         }
 
+        /*$parsedResult = array(); $parsedResult['frameType'] = FRAME_TYPE_UNKNOWN;
+        $parsedResult['cc'] = 0; $parsedResult['streamPID'] = 5; */
 		$parsedResult = parseFrame($oneFrame);
 
         if (!empty($parsedResult['error'])) {
@@ -912,9 +903,9 @@
             if ($launchMode == LAUNCH_MODE_INJECT) {
                 // Modify PMT table – add our ID3 stream in the list
                 if ($parsedResult['frameType'] == FRAME_TYPE_PMT) {
-                    $response = modifyFramePMT($oneFrame);
+                    $response = modifyFramePMT($oneFrame, $metastreamID);
                     $oneFrame = $response['frame'];
-                    if (!$metastreamID) $metastreamID = $response['metastreamID'];
+                    if ($metastreamID == null) $metastreamID = $response['metastreamID'];
                 }
 
                 // We have a frame with PTS (presentation timestamp)
