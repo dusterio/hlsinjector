@@ -1,5 +1,6 @@
 <?php
     /*
+     * HLS Metadata Injector
      * (c) 2015 Denis Mysenko
      */
 
@@ -268,8 +269,8 @@
             // 0100 1100  0010 1100  0010 1100  0010 1100  0010 1100
             $oneByte = ord($oneFrame[13]);
 
-            if ($debug && (($oneByte >> 4) & 15) == 2) {
-                echo "4 bits: PTS padding: OK\n";
+            if ((($oneByte >> 4) & 15) == 2) {
+                if ($debug) echo "4 bits: PTS padding: OK\n";
             } else {
                 return $response;
             }
@@ -772,7 +773,7 @@
             fclose($metaHandle);
 
             if (count($metaData) == 0) { die("Empty metadata file or wrong format\n"); } else {
-                echo "** Parsed " . count($metaData) . " data tags\n";
+                echo "** Imported " . count($metaData) . " metadata tags\n";
             }
 
             // Sort meta data chronologically
@@ -917,26 +918,35 @@
                 }
 
                 // We have a frame with PTS (presentation timestamp)
-                // Therefore, we can decide whether we want to add ID3 frame next
+                // Therefore, we can decide whether we want to add an ID3 frame next
                 if (!empty($parsedResult['timestamp'])) {
                     if (!$initialShift) $initialShift = ($parsedResult['timestamp'] / $clockFrequency);
                     if ($debug) echo "** Timestamp received: " . $parsedResult['timestamp'] . "\n";
                     if (count($metaData) > 0) {
                         if ($metastreamID && (($parsedResult['timestamp'] / $clockFrequency) - $initialShift) >= $metaData[0]['moment']) {
                             $metaFrame = generateMetaFrame($metaData[0]['tag'], $metastreamID, $parsedResult['raw_timestamp'], $metaCC);
-                            echo "Inserting ID3 frame after frame " . $frameCounter . "\n";
-                            //fwrite($outputHandle, $metaFrame, $packetSize);
-                            $outputContent .= $metaFrame;
+                            echo "Inserting ID3 frame after frame " . $frameCounter . " (len=" . strlen($metaFrame) . ")\n";
+
                             array_shift($metaData);
-                            $insertedCounter++;
-                            $metaCC++;
-                            if ($metaCC == 16) { $metaCC = 0; };
+                            if (strlen($metaFrame) != $packetSize) continue;
+
+                            if ($inputHandle) {
+                                fwrite($outputHandle, $metaFrame, $packetSize);
+                            } else {
+                                $outputContent .= $metaFrame;
+                                $insertedCounter++;
+                                $metaCC++;
+                                if ($metaCC == 16) { $metaCC = 0; };
+                            }
                         }
                     }
                 }
 
-                $outputContent .= $oneFrame;
-                //fwrite($outputHandle, $oneFrame, $packetSize);
+                if ($inputHandle) {
+                    fwrite($outputHandle, $oneFrame, $packetSize);
+                } else {
+                    $outputContent .= $oneFrame;
+                }
             }
         } else {
             $errorCounter++;
@@ -957,10 +967,14 @@
     echo "Total of " . count($currentStream['programs']) . " programs and " . $streamCounter . " streams\n";
 
     if ($launchMode == LAUNCH_MODE_INJECT) {
-        fwrite($outputHandle, $outputContent);
+        if ($inputHandle) {
+            fclose($outputHandle);
+        } else {
+            fwrite($outputHandle, $outputContent);
+            fclose($outputHandle);
+        }
         echo "Injected " . $insertedCounter . " frames\n";
     }
 
 	if ($inputHandle) fclose($inputHandle);
-    if ($launchMode == LAUNCH_MODE_INJECT) fclose($outputHandle);
     echo "Finished in " . round(((microtime(true) - $startTime) * 1000), 3) . "ms\n";
