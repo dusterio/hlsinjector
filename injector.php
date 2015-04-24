@@ -925,10 +925,11 @@
                                 fwrite($outputHandle, $metaFrame, $packetSize);
                             } else {
                                 $outputContent .= $metaFrame;
-                                $insertedCounter++;
-                                $metaCC++;
-                                if ($metaCC == 16) { $metaCC = 0; };
                             }
+
+                            $insertedCounter++;
+                            $metaCC++;
+                            if ($metaCC == 16) { $metaCC = 0; };
                         }
                     }
                 }
