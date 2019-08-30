@@ -208,7 +208,7 @@
             // Computing checksum and verifying it against the one supplied in the stream
             $crc32 = substr($oneFrame, 17, 4);
             $tableContent = substr($oneFrame, 5, $section_length - 1 + 4);
-            $crc = ($crc32[0] << 24) + ($crc32[1] << 16) + ($crc32[2] << 8) + $crc32[3];
+            $crc = (ord($crc32[0]) << 24) + (ord($crc32[1]) << 16) + (ord($crc32[2]) << 8) + ord($crc32[3]);
 
             if ($debug) echo "** CRC checksum contained = 0x" . dechex($crc) . "\n";
             if (calculateCRC($tableContent) == 0) {
@@ -224,7 +224,7 @@
             $stream_id = ord($oneFrame[7]);
             if ($debug) echo "8 bits: Stream ID = " . $stream_id . " (dec) / 0x" . dechex($stream_id) ." (hex)\n";
 
-            if ($debug) echo "16 bits: PES packet length = " . (($oneFrame[8] << 8) + $oneFrame[9]) . " (bytes)\n";
+            if ($debug) echo "16 bits: PES packet length = " . ((ord($oneFrame[8]) << 8) + ord($oneFrame[9])) . " (bytes)\n";
 
             $oneByte = ord($oneFrame[10]);
 
@@ -445,7 +445,7 @@
             // Computing checksum and verifying it against the one supplied in the stream
             $crc32 = substr($oneFrame, $table_end + 1, 4);
             $tableContent = substr($oneFrame, 5, $section_length - 1 + 4);
-            $crc = ($crc32[0] << 24) + ($crc32[1] << 16) + ($crc32[2] << 8) + $crc32[3];
+            $crc = (ord($crc32[0]) << 24) + (ord($crc32[1]) << 16) + (ord($crc32[2]) << 8) + ord($crc32[3]);
 
             if ($debug) echo "** CRC checksum contained = 0x" . dechex($crc) . "\n";
             if (calculateCRC($tableContent) == 0) {
