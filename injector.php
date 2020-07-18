@@ -1,5 +1,5 @@
 <?php
-    /*
+    /*  
      * HLS Metadata Injector
      * (c) 2015 Denis Mysenko 
      */
