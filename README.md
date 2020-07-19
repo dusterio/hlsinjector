@@ -6,7 +6,7 @@ There are Apple tools but they only run under MAC OS and, it appears, they got b
 
 Here you are – not a code worth programming competition, but it's working and it's going to save you hours of googling.
 
-# How to use it
+# How to use this
 You must have PHP CLI installed. Thankfully, it's totally cross-platform and free. Once you have it installed, just run:
 
 `HLS Injector by Denis Mysenko
