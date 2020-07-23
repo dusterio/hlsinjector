@@ -3,8 +3,8 @@
      * HLS Metadata Injector (c) 2015 Denis Mysenko 
      */
 
-	$packetSize = 188;
-	// 90Khz for MPEG TS
+    $packetSize = 188;
+    // 90Khz for MPEG TS
 	$clockFrequency = 90000;
     $debug = false;
     // 10 megabytes – if the input file is smaller, load it into RAM fully
