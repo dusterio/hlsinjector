@@ -664,7 +664,7 @@
         return $response;
     }
 
-    $legend = "HLS Injector by Denis Mysenko\nSyntax: " . $argv[0] . " -i filename -m mode [-o filename] [-d]";
+    $legend = "HLS Injector by Denis Mysenko\nSyntax: " . $argv[0] . " -i filenamee -m mode [-o filename] [-d]";
     $legend .= "\n\n\t\t-i filename\tinput file (MPEG TS format)\n";
     $legend .= "\t\t-m mode\t\tchoose 'analyze' or 'inject'\n";
     $legend .= "\t\t-o filename\toutput filename in case of 'inject' mode\n";
