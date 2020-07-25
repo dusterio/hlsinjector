@@ -703,11 +703,11 @@
     }
 
     if ($launchMode == LAUNCH_MODE_INJECT && empty($commandLineOptions['o'])) {
-        die("Pleasee specify output file\n");
+        die("Please specify output file\n");
     }
 
     if ($launchMode == LAUNCH_MODE_INJECT && empty($commandLineOptions['e'])) {
-        die("Pleasee specify metadata file\n");
+        die("Please specify metadata file\n");
     }
 
     if ($launchMode == LAUNCH_MODE_INJECT) {
