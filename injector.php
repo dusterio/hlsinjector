@@ -667,7 +667,7 @@
     $legend = "HLS Injector by Denis Mysenko\nSyntax: " . $argv[0] . " -i filename -m mode [-o filename] [-d]";
     $legend .= "\n\n\t\t-i filename\tinput file (MPEG TS format)\n";
     $legend .= "\t\t-m mode\t\tchoose 'analyze' or 'inject'\n";
-    $legend .= "\t\t-o filename\toutput filenamee in case of 'inject' mode\n";
+    $legend .= "\t\t-o filename\toutput teasdasd in case of 'inject' mode\n";
     $legend .= "\t\t-e filename\twith with timed metadata (see README for format)\n";
     $legend .= "\t\t--metastart N\tstart CC for metadata stream from this number\n";
     $legend .= "\t\t-d\t\tenable debug mode\n\n";
