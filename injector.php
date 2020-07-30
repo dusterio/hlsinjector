@@ -1,6 +1,6 @@
 <?php
     /*  
-     * HLS Metadata Injector (c) 2015 Denis Mysenko
+     * HLS Metadata Injector (c) 2015 Denis Mysenko    
      */
 
     $packetSize = 188;
